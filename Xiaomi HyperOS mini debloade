@@ -1,91 +1,128 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Liste der sicher zu entfernenden Werbe- und Tracking-Bloatware (Paketnamen)
+set -u
+
 PACKAGES=(
-  "com.miui.msa.global"          # MIUI System Ads
-  "com.miui.analytics"           # Mi Analytik
-  "com.xiaomi.adservice"         # Xiaomi Ad Services
-  "com.facebook.appmanager"      # FacebookAppManager
-  "com.facebook.services"        # FacebookService
-  "com.miui.mipicks"             # Miui AD loader
-  "com.mi.globalbrowser"         # Mi Browser
-  "com.miui.videoplayer"         # Miui Player
+  "com.miui.msa.global"
+  "com.miui.analytics"
+  "com.xiaomi.adservice"
+  "com.facebook.appmanager"
+  "com.facebook.services"
+  "com.miui.mipicks"
+  "com.mi.globalbrowser"
+  "com.miui.videoplayer"
 )
 
-# Überprüfen, ob ADB installiert ist
-if ! command -v adb &> /dev/null
-then
-    echo "ADB wurde nicht gefunden. Bitte installiere ADB, um fortzufahren."
-    exit 1
+if ! command -v adb >/dev/null 2>&1; then
+  echo "ADB wurde nicht gefunden. Bitte installiere Android Platform Tools." >&2
+  exit 1
 fi
 
-# Funktion zum Überprüfen, ob ADB verbunden ist
-check_adb_connection() {
-  devices=$(adb devices | grep "device$")
-  if [[ -z "$devices" ]]; then
-    echo "Keine ADB-Verbindung gefunden. Stelle sicher, dass dein Gerät im USB-Debugging-Modus verbunden ist."
-    exit 1
-  fi
-}
+if ! device_output=$(adb devices 2>&1); then
+  printf 'ADB konnte die Geräteliste nicht lesen:\n%s\n' "$device_output" >&2
+  exit 1
+fi
 
-# Funktion zum Überprüfen, ob das Gerät gerootet ist
-check_root_access() {
-  root_check=$(adb shell whoami | grep "root")
-  if [[ -z "$root_check" ]]; then
-    echo "Kein Root-Zugriff. Das Skript funktioniert nur im Benutzermodus, root ist nicht erforderlich."
-    return 0
+mapfile -t device_rows < <(
+  printf '%s\n' "$device_output" |
+    awk '$0 == "List of devices attached" { in_devices = 1; next }
+      in_devices && NF >= 2 {
+      print $1 "\t" $2
+    }'
+)
+
+if (( ${#device_rows[@]} != 1 )); then
+  echo "Es muss genau ein ADB-Gerät verbunden sein. Erkannte Geräte:" >&2
+  if (( ${#device_rows[@]} == 0 )); then
+    echo "  keine" >&2
   else
-    echo "Achtung: Root-Zugriff entdeckt. Für das sichere Entfernen von Bloatware ist root nicht erforderlich."
-    return 1
+    printf '  %s\n' "${device_rows[@]}" >&2
   fi
-}
+  echo "Bitte trenne weitere Geräte und autorisiere USB-Debugging." >&2
+  exit 1
+fi
 
-# Funktion zum Überprüfen, ob ein Paket deinstalliert werden kann
-can_uninstall() {
-  PACKAGE=$1
-  result=$(adb shell pm list packages | grep "$PACKAGE")
-  if [[ -n "$result" ]]; then
-    echo "Paket $PACKAGE ist installiert und kann entfernt werden."
-    return 0
-  else
-    echo "Paket $PACKAGE ist nicht installiert oder kann nicht entfernt werden."
-    return 1
-  fi
-}
+IFS=$'\t' read -r device_serial device_state <<< "${device_rows[0]}"
+if [[ "$device_state" != "device" ]]; then
+  printf 'ADB-Gerät %s ist nicht autorisiert oder offline (%s).\n' \
+    "$device_serial" "$device_state" >&2
+  exit 1
+fi
 
-# Überprüfung der ADB-Verbindung
-check_adb_connection
+if ! adb -s "$device_serial" get-state >/dev/null 2>&1; then
+  printf 'ADB-Gerät %s ist nicht erreichbar.\n' "$device_serial" >&2
+  exit 1
+fi
 
-# Root-Check, um sicherzustellen, dass das Skript im sicheren Modus bleibt
-check_root_access
+if ! android_uid=$(adb -s "$device_serial" shell id -u 2>&1); then
+  printf 'Benutzer-ID des Geräts konnte nicht geprüft werden:\n%s\n' \
+    "$android_uid" >&2
+  exit 1
+fi
+android_uid=${android_uid//$'\r'/}
+if [[ "$android_uid" == "0" ]]; then
+  echo "Abbruch: Das ADB-Shell-Konto läuft als root. Root ist nicht erforderlich." >&2
+  exit 1
+fi
 
-# Bestätigung vom Benutzer einholen
-echo "Die folgenden Pakete werden entfernt: ${PACKAGES[@]}"
-read -p "Möchtest du fortfahren? (j/n): " answer
+if ! user_id=$(adb -s "$device_serial" shell am get-current-user 2>&1); then
+  printf 'Aktueller Android-Benutzer konnte nicht ermittelt werden:\n%s\n' \
+    "$user_id" >&2
+  exit 1
+fi
+user_id=${user_id//$'\r'/}
+if [[ ! "$user_id" =~ ^[0-9]+$ ]]; then
+  printf 'Ungültige Android-Benutzer-ID: %s\n' "$user_id" >&2
+  exit 1
+fi
+
+echo "Zielgerät: $device_serial"
+echo "Android-Benutzer: $user_id"
+echo
+echo "Das Skript versucht, diese Apps nur für diesen Benutzer zu deinstallieren:"
+printf '  %s\n' "${PACKAGES[@]}"
+echo
+echo "Die Auswirkungen unterscheiden sich je nach MIUI/HyperOS-Version."
+read -r -p "Zum Fortfahren exakt 'j' eingeben: " answer
 if [[ "$answer" != "j" ]]; then
-  echo "Abbruch!"
+  echo "Abbruch."
   exit 0
 fi
 
-echo "Entfernung von Werbe- und Tracking-Bloatware startet..."
+failures=0
+for package in "${PACKAGES[@]}"; do
+  printf '\nPrüfe %s ...\n' "$package"
 
-# Überprüfen und Entfernen der Werbe- und Tracking-Pakete
-for PACKAGE in "${PACKAGES[@]}"; do
-  echo "Überprüfe $PACKAGE..."
-  
-  if can_uninstall $PACKAGE; then
-    echo "Entferne $PACKAGE ..."
-    
-    # Führe den Deinstallationsbefehl aus und prüfe den Erfolg
-    adb shell pm uninstall --user 0 $PACKAGE
-    if [[ $? -eq 0 ]]; then
-      echo "$PACKAGE erfolgreich entfernt."
-    else
-      echo "Fehler beim Entfernen von $PACKAGE. Überprüfe, ob das Paket deinstalliert werden kann."
-    fi
+  if ! installed_packages=$(
+    adb -s "$device_serial" shell pm list packages "$package" 2>&1
+  ); then
+    printf 'Fehler beim Prüfen von %s:\n%s\n' "$package" "$installed_packages" >&2
+    ((failures += 1))
+    continue
+  fi
+  installed_packages=${installed_packages//$'\r'/}
+
+  if ! grep -Fxq -- "package:$package" <<< "$installed_packages"; then
+    echo "Nicht installiert; übersprungen."
+    continue
+  fi
+
+  printf 'Deinstalliere %s für Benutzer %s ...\n' "$package" "$user_id"
+  if result=$(
+    adb -s "$device_serial" shell pm uninstall --user "$user_id" "$package" 2>&1
+  ) && [[ "${result//$'\r'/}" == "Success" ]]; then
+    echo "Erfolgreich deinstalliert."
   else
-    echo "$PACKAGE wird übersprungen."
+    printf 'Fehler beim Deinstallieren von %s:\n%s\n' \
+      "$package" "${result//$'\r'/}" >&2
+    ((failures += 1))
   fi
 done
 
-echo "Werbe- und Tracking-Bloatware erfolgreich entfernt!"
+if (( failures > 0 )); then
+  printf '\nFertig mit %d Fehler(n). Prüfe die obigen Meldungen.\n' "$failures" >&2
+  exit 1
+fi
+
+echo
+echo "Fertig."

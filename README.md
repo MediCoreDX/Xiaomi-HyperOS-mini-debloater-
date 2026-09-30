@@ -1,21 +1,42 @@
-Xiaomi mini Ad & Tracking Bloatware Removal Script
+# Xiaomi HyperOS / MIUI app removal helper
 
-This script removes specific ad and tracking bloatware from Xiaomi devices running MIUI while keeping essential system components like the Xiaomi account intact. It safely uninstalls unnecessary services without impacting critical functionality.
-Features
+This Bash script uses Android Debug Bridge (ADB) to uninstall a small,
+hard-coded list of apps for the currently active Android user. It does not
+require root and does not remove the packages from the system image.
 
-    Safe Removal: Only removes non-essential ad and tracking apps, such as MIUI ads and analytics.
-    No Root Required: The script runs in user mode and does not require root access.
-    ADB Connection Check: Verifies that your device is connected via ADB before proceeding.
-    Safe User Mode Uninstallation: The script only uninstalls apps for the current user, leaving the system core untouched.
+## Requirements
 
-Requirements
+- Bash
+- Android Platform Tools (`adb`)
+- USB debugging enabled and this computer authorized on the phone
+- Exactly one authorized ADB device connected
 
-    ADB: Ensure that ADB (Android Debug Bridge) is installed on your system.
-    USB Debugging Enabled: Make sure USB debugging is enabled on your Xiaomi device. You can enable it in the developer options.
+## Run
 
-How to Enable USB Debugging
+Connect and authorize the phone, then run:
 
-    Open Settings on your Xiaomi device.
-    Go to About Phone and tap MIUI Version 7 times to enable Developer Options.
-    Go back to Settings > Additional settings > Developer options.
-    Enable USB debugging.
+```bash
+bash "Xiaomi HyperOS mini debloade"
+```
+
+The script displays the selected device, Android user, and package list and
+requires explicit confirmation before making changes. Packages are matched by
+their exact package IDs. Apps that are not installed are skipped.
+
+## Important
+
+The package list is a starting point, not a guarantee that every listed app is
+unnecessary on every Xiaomi device or OS version. Removing an app can disable
+features that depend on it. Review the list and understand the effects before
+confirming. The operation applies only to the current Android user; it does not
+erase the app from the device's system image.
+
+To restore an app for a user, where the OS still has the system package:
+
+```bash
+adb -s DEVICE_SERIAL shell cmd package install-existing --user USER_ID PACKAGE_ID
+```
+
+Replace `DEVICE_SERIAL` with the serial shown by the script, `USER_ID` with the
+displayed Android user ID, and `PACKAGE_ID` with the package name, for example
+`com.miui.analytics`.
