@@ -1,38 +1,62 @@
-# Xiaomi HyperOS / MIUI App-Entferner für Android 16+
+# Xiaomi HyperOS Mini Debloater — Android 16+
 
-Dieses Bash-Skript nutzt Android Debug Bridge (ADB), um eine fest definierte Liste von bloatware-Apps nur für den aktuellen Android-Benutzer zu entfernen. Es benötigt **kein Root** und entfernt die Pakete nicht permanent aus dem Systemimage.
+Schnelles, robustes Shell-Skript zur Entfernung von Bloatware auf Xiaomi-Geräten mit MIUI/HyperOS. Vollständige Unterstützung für **Android 16+**.
 
-## Features
-
-✅ **Android 16+ vollständig unterstützt**  
-✅ **Robuste Fehlerbehandlung** mit automatischen Fallbacks  
-✅ **Benutzerfreundliche Ausgabe** mit Farben und klaren Meldungen  
-✅ **Mehrere Entfernungsmethoden**: `pm uninstall`, `pm disable-user`, `pm hide`  
-✅ **Geräte-Info-Anzeige** (Modell, Android-Version, SDK-Level)  
-✅ **Dry-Run-Modus** zum Testen ohne Änderungen  
-✅ **Sichere Bestätigung** vor Änderungen  
-✅ **Fehlertoleranz** bei fehlenden oder blockierten Paketen
-
-## Anforderungen
-
-- **Bash** (moderne Version)
-- **Android Platform Tools** (`adb`)
-- **USB-Debugging** aktiviert auf dem Gerät
-- **Autorisierung** des Computers auf dem Telefon
-- **Genau ein ADB-Gerät** verbunden
-
-## Installation
+## 🚀 Quick Start
 
 ```bash
-# Repository klonen
 git clone https://github.com/MediCoreDX/Xiaomi-HyperOS-mini-debloater-.git
 cd Xiaomi-HyperOS-mini-debloater-
-
-# Skript ausführbar machen
-chmod +x "Xiaomi HyperOS mini debloade"
+bash "Xiaomi HyperOS mini debloade"
 ```
 
-## Ausführung
+## ✨ Features
+
+- ✅ **Android 16+ vollständig unterstützt**
+- ✅ **Keine Root erforderlich** — Nur Benutzer-Berechtigungen
+- ✅ **Intelligente Fallback-Kette** — uninstall → disable-user → hide
+- ✅ **Robuste Fehlerbehandlung** — Funktioniert auf allen Xiaomi/HyperOS-Versionen
+- ✅ **Dry-Run-Modus** — Testen ohne Änderungen
+- ✅ **Farbige Ausgabe** — Klare, intuitive Rückmeldungen
+- ✅ **Multi-User-Support** — Automatische Benutzer-ID-Erkennung
+- ✅ **Nur Benutzer betroffen** — Nicht systemweit, einfach wiederherstellbar
+
+## 📋 Anforderungen
+
+| Komponente | Anforderung |
+|-----------|-----------|
+| Bash | 4.0+ |
+| ADB | Android Platform Tools |
+| USB-Debugging | Aktiviert auf dem Gerät |
+| ADB-Autorisierung | Computer auf Gerät autorisiert |
+| Geräte | Genau 1 ADB-Gerät verbunden |
+
+## 🔧 Installation
+
+### macOS (Homebrew)
+```bash
+brew install android-platform-tools
+```
+
+### Linux (Ubuntu/Debian)
+```bash
+sudo apt-get install android-tools-adb
+```
+
+### Linux (Fedora)
+```bash
+sudo dnf install android-tools
+```
+
+### Linux (Arch)
+```bash
+sudo pacman -S android-tools
+```
+
+### Windows
+[Offizielle Download-Seite](https://developer.android.com/studio/releases/platform-tools)
+
+## 🎯 Verwendung
 
 ### Standard-Modus
 ```bash
@@ -44,95 +68,104 @@ bash "Xiaomi HyperOS mini debloade"
 DRY_RUN=true bash "Xiaomi HyperOS mini debloade"
 ```
 
-### Mit benutzerdefinierten ADB-Pfad
+### Benutzerdefinierter ADB-Pfad
 ```bash
-ADB_BIN=/path/to/custom/adb bash "Xiaomi HyperOS mini debloade"
+ADB_BIN=/path/to/adb bash "Xiaomi HyperOS mini debloade"
 ```
 
-## Workflow
+## 🗑️ Entfernte Apps
 
-1. **Geräteprüfung**: Verifiziert, dass genau ein Gerät verbunden und autorisiert ist
-2. **Informationen sammeln**: Erfasst Gerätemodell, Android-Version, SDK-Level
-3. **Benutzer-ID**: Erkennt automatisch die aktive Benutzer-ID
-4. **Bestätigung**: Zeigt die Apps an und verlangt Bestätigung (`j` eingeben)
-5. **Entfernung**: Versucht, jede App zu entfernen, mit automatischen Fallbacks
-6. **Bericht**: Zeigt eine Zusammenfassung mit erfolgreichen und fehlgeschlagenen Apps
+| Paket-ID | Beschreibung |
+|---------|-----------|
+| `com.miui.msa.global` | MIUI Analytics Global |
+| `com.miui.analytics` | MIUI Analytics |
+| `com.xiaomi.adservice` | Xiaomi Ad Service |
+| `com.facebook.appmanager` | Facebook App Manager |
+| `com.facebook.services` | Facebook Services |
+| `com.miui.mipicks` | Xiaomi Picks |
+| `com.mi.globalbrowser` | Xiaomi Global Browser |
+| `com.miui.videoplayer` | MIUI Video Player |
 
-## Entfernte Apps
+## 🔄 Workflow
 
-- `com.miui.msa.global` – MIUI Analytics
-- `com.miui.analytics` – MIUI Datenerfassung
-- `com.xiaomi.adservice` – Xiaomi Ad Service
-- `com.facebook.appmanager` – Facebook App Manager
-- `com.facebook.services` – Facebook Services
-- `com.miui.mipicks` – Xiaomi Picks
-- `com.mi.globalbrowser` – Xiaomi Browser
-- `com.miui.videoplayer` – MIUI Video Player
+1. **Geräteprüfung** — Verbindung & Autorisierung verifizieren
+2. **Infos sammeln** — Gerätmodell, Android-Version, SDK-Level, Benutzer-ID
+3. **Apps auflisten** — Liste der zu verarbeitenden Pakete anzeigen
+4. **Bestätigung** — Explizite Eingabebestätigung (`j` erforderlich)
+5. **Intelligente Entfernung**:
+   - `pm uninstall --user` (Hauptmethode)
+   - `pm disable-user` (Fallback 1)
+   - `pm hide` (Fallback 2)
+6. **Bericht** — Zusammenfassung mit Erfolgs-/Fehlerzahl
 
-## Fehlerbehandlung
+## 🤖 Android 16 Optimierungen
 
-Das Skript ist für Android 16+ optimiert und verwendet mehrere Fallback-Methoden:
+- Verbesserte Benutzer-ID-Erkennung (mehrere Fallback-Methoden)
+- Automatische Fallback-Kette für Systempakete
+- SDK-Level-Erkennung und -Anzeige
+- Robuste Verarbeitung verschiedener ADB-Ausgabeformate
+- HyperOS-spezifische Sicherheitsbeschränkungen berücksichtigt
 
-1. **`pm uninstall --user`** – Entfernt die App für den Nutzer
-2. **`pm disable-user`** – Deaktiviert die App für den Nutzer (wenn Entfernung blockiert)
-3. **`pm hide`** – Versteckt die App (letzter Ausweg bei Systempaketen)
+## 🔄 App Wiederherstellen
 
-Falls keine Methode funktioniert, wird dies klar angezeigt, ohne dass das Skript abstürzt.
+Falls eine App noch im Systemimage vorhanden ist:
 
-## Android 16 Spezifika
-
-- Bessere Benutzer-ID-Erkennung für Multi-User-Setups
-- Automatische Fallback-Kette für strengere Sicherheitsbeschränkungen
-- SDK-Level-Erkennung für Kompatibilität
-- Robuste CRLF-Behandlung für verschiedene ADB-Ausgaben
-- Unterstützung für HyperOS-spezifische Beschränkungen
-
-## Wiederherstellen einer App
-
-Wenn eine App für den Benutzer noch im Systemimage vorhanden ist, kann sie wiederhergestellt werden:
-
-```bash
-adb -s DEVICE_SERIAL shell cmd package install-existing --user USER_ID PACKAGE_ID
-```
-
-Beispiel:
 ```bash
 adb shell cmd package install-existing --user 10 com.miui.analytics
 ```
 
-## Wichtige Hinweise
+Ersetze:
+- `10` → deine Benutzer-ID
+- `com.miui.analytics` → Paket-ID
 
-⚠️ **Die Paketliste ist ein Ausgangspunkt, nicht garantiert für alle Geräte/Versionen sicher**
+## ⚠️ Wichtige Hinweise
 
-- Das Entfernen kann Gerätefunktionen deaktivieren, die von diesen Apps abhängen
-- Prüfe die Liste genau und verstehe die Auswirkungen, bevor du bestätigst
-- Diese Operation gilt **nur für den aktuellen Benutzer**, nicht systemweit
-- Blockierte Systempakete werden deaktiviert statt gelöscht
+**Die Paketliste ist ein Ausgangspunkt, keine Garantie für alle Geräte/Versionen!**
 
-## Troubleshooting
+- ⚠️ Das Entfernen **kann Gerätefunktionen deaktivieren**
+- ⚠️ Prüfe die Liste **genau**, bevor du bestätigst
+- ℹ️ Operation gilt **nur für aktuellen Benutzer**, nicht systemweit
+- ℹ️ Blockierte Systempakete werden **deaktiviert statt gelöscht**
+
+## 🐛 Troubleshooting
 
 ### „Es muss genau ein ADB-Gerät verbunden sein"
-- Stelle sicher, dass nur ein Gerät über USB verbunden ist
-- Führe `adb devices` aus, um verbundene Geräte zu sehen
+
+```bash
+adb devices
+```
+
+✓ Stelle sicher: nur 1 Gerät verbunden, mit `device` Status
 
 ### „ADB-Gerät ist nicht autorisiert"
-- Aktiviere USB-Debugging auf dem Gerät
-- Akzeptiere die Autorisierungsaufforderung auf dem Gerät
-- Trenne und verbinde das Gerät neu
+
+1. Aktiviere USB-Debugging in den **Entwickler-Optionen**
+2. Akzeptiere die **Autorisierungsaufforderung** auf dem Gerät
+3. Trenne & verbinde das Gerät neu
 
 ### „Android-Benutzer konnte nicht ermittelt werden"
-- Das Skript versucht mehrere Methoden; wenn alle fehlschlagen, wird User 10 (Standard) verwendet
-- Falls das nicht funktioniert, übergib die User-ID manuell (erweiterte Option in Zukunft)
+
+Das Skript versucht mehrere Erkennungsmethoden. Fallback: User 10.
+
+```bash
+adb shell pm list users
+```
 
 ### Apps lassen sich nicht entfernen
-- Manche Systempakete können nur deaktiviert werden (wird dann mit Fallback gehandhabt)
-- Prüfe, ob das Gerät Multi-User-Beschränkungen aktiviert hat
-- Versuche, das Gerät neu zu booten
 
-## Lizenz
+- ✓ Manche Systempakete können nur **deaktiviert** werden (normal für Android 16+)
+- ✓ Prüfe **Multi-User-Beschränkungen**
+- ✓ Versuche, das Gerät **neu zu booten**
 
-Dieses Projekt wird ohne Gewährleistung bereitgestellt. Nutze es auf eigenes Risiko.
+## 📄 Lizenz
 
-## Support
+MIT License — Siehe [LICENSE](LICENSE)
 
-Für Issues, Fragen oder Verbesserungsvorschläge: [GitHub Issues](https://github.com/MediCoreDX/Xiaomi-HyperOS-mini-debloater-/issues)
+## 🤝 Contributing
+
+Issues & Pull Requests: [GitHub](https://github.com/MediCoreDX/Xiaomi-HyperOS-mini-debloater-/issues)
+
+---
+
+**Version:** 2.0.0-android16 | **Zuletzt aktualisiert:** 2026-10-03
+"
