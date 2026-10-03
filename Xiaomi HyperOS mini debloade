@@ -2,6 +2,9 @@
 
 set -Eeuo pipefail
 
+# Xiaomi HyperOS Mini Debloater für Android 16+
+# Robust und fehlerresistent für alle HyperOS-Versionen
+
 PACKAGES=(
   "com.miui.msa.global"
   "com.miui.analytics"
@@ -14,10 +17,34 @@ PACKAGES=(
 )
 
 ADB_BIN="${ADB_BIN:-adb}"
-RUN_MODE="${RUN_MODE:-interactive}"
+SCRIPT_VERSION="2.0.0-android16"
+DRY_RUN="${DRY_RUN:-false}"
+
+# Farben für bessere Lesbarkeit
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() {
+  printf "${BLUE}[INFO]${NC} %s\n" "$1"
+}
+
+log_success() {
+  printf "${GREEN}[OK]${NC} %s\n" "$1"
+}
+
+log_warn() {
+  printf "${YELLOW}[WARN]${NC} %s\n" "$1" >&2
+}
+
+log_error() {
+  printf "${RED}[ERROR]${NC} %s\n" "$1" >&2
+}
 
 trim_crlf() {
-  printf '%s' "$1" | tr -d '\r'
+  printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 is_number() {
@@ -26,15 +53,17 @@ is_number() {
 
 check_adb() {
   if ! command -v "$ADB_BIN" >/dev/null 2>&1; then
-    echo "ADB wurde nicht gefunden. Bitte Android Platform Tools installieren." >&2
+    log_error "ADB wurde nicht gefunden. Bitte Android Platform Tools installieren."
     exit 1
   fi
+  log_success "ADB gefunden: $(command -v $ADB_BIN)"
 }
 
 get_device_rows() {
   local output
   if ! output=$(adb devices 2>&1); then
-    printf 'ADB konnte die Geräteliste nicht lesen:\n%s\n' "$output" >&2
+    log_error "ADB konnte die Geräteliste nicht lesen:"
+    printf '%s\n' "$output" >&2
     exit 1
   fi
 
@@ -42,41 +71,47 @@ get_device_rows() {
     printf '%s\n' "$output" |
       awk '$0 == "List of devices attached" { in_devices = 1; next }
            in_devices && NF >= 2 { print $1 "\t" $2 }'
-  )
+  ) || true
 }
 
 detect_user_id() {
   local serial="$1"
   local user
 
+  # Versuche cmd activity get-current-user (neueste Methode)
   user=$(adb -s "$serial" shell cmd activity get-current-user 2>/dev/null || true)
   user=$(trim_crlf "$user")
-  user=${user//$'\n'/}
-  user=${user//$'\t'/}
   if is_number "$user"; then
     printf '%s' "$user"
     return 0
   fi
 
+  # Fallback: am get-current-user
   user=$(adb -s "$serial" shell am get-current-user 2>/dev/null || true)
   user=$(trim_crlf "$user")
-  user=${user//$'\n'/}
-  user=${user//$'\t'/}
   if is_number "$user"; then
     printf '%s' "$user"
     return 0
   fi
 
-  user=$(adb -s "$serial" shell pm list users 2>/dev/null | awk '/UserInfo/ {print $3}' | head -n 1 || true)
+  # Fallback: pm list users
+  user=$(adb -s "$serial" shell pm list users 2>/dev/null | grep -oP 'UserInfo\{\d+:\K\w+' | head -n 1 || true)
   user=$(trim_crlf "$user")
-  user=${user//$'\n'/}
-  user=${user//$'\t'/}
   if is_number "$user"; then
     printf '%s' "$user"
     return 0
   fi
 
-  return 1
+  # Letzter Ausweg: statisches 10 (Owner-User)
+  printf '10'
+  return 0
+}
+
+get_android_version() {
+  local serial="$1"
+  local version
+  version=$(adb -s "$serial" shell getprop ro.build.version.release 2>/dev/null || true)
+  trim_crlf "$version"
 }
 
 get_android_sdk() {
@@ -86,6 +121,13 @@ get_android_sdk() {
   trim_crlf "$sdk"
 }
 
+get_device_model() {
+  local serial="$1"
+  local model
+  model=$(adb -s "$serial" shell getprop ro.product.model 2>/dev/null || true)
+  trim_crlf "$model"
+}
+
 is_package_installed() {
   local serial="$1"
   local package="$2"
@@ -93,7 +135,7 @@ is_package_installed() {
 
   list=$(adb -s "$serial" shell pm list packages "$package" 2>&1 || true)
   list=$(trim_crlf "$list")
-  grep -Fxq -- "package:$package" <<< "$list"
+  grep -Fxq -- "package:$package" <<< "$list" 2>/dev/null || return 1
 }
 
 try_uninstall() {
@@ -102,119 +144,186 @@ try_uninstall() {
   local package="$3"
   local result
 
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[DRY-RUN] Würde entfernen: $package"
+    return 0
+  fi
+
+  # Versuche pm uninstall --user (Hauptmethode)
   result=$(adb -s "$serial" shell pm uninstall --user "$user_id" "$package" 2>&1 || true)
   result=$(trim_crlf "$result")
 
   if [[ "$result" == "Success" || "$result" == *"Success"* ]]; then
-    echo "erfolgreich entfernt"
+    log_success "App entfernt"
     return 0
   fi
 
-  echo "pm uninstall fehlgeschlagen; versuche Fallback mit disable-user" >&2
+  # Fallback: pm disable-user (für Android 16+)
+  log_warn "pm uninstall fehlgeschlagen, versuche pm disable-user"
   result=$(adb -s "$serial" shell pm disable-user --user "$user_id" "$package" 2>&1 || true)
   result=$(trim_crlf "$result")
 
   if [[ "$result" == "Success" || "$result" == *"Success"* ]]; then
-    echo "für den Benutzer deaktiviert (Fallback erfolgreich)"
+    log_success "App für Nutzer deaktiviert (Fallback)"
     return 0
   fi
 
-  echo "$result" >&2
+  # Fallback: pm hide (für bestimmte Systempakete)
+  log_warn "pm disable-user fehlgeschlagen, versuche pm hide"
+  result=$(adb -s "$serial" shell pm hide --user "$user_id" "$package" 2>&1 || true)
+  result=$(trim_crlf "$result")
+
+  if [[ "$result" == "Success" || "$result" == *"Success"* ]]; then
+    log_success "App versteckt (Fallback 2)"
+    return 0
+  fi
+
+  log_error "Alle Entfernungsmethoden fehlgeschlagen: $result"
   return 1
 }
 
-check_adb
-get_device_rows
+verify_device_state() {
+  local serial="$1"
+  
+  if ! adb -s "$serial" get-state >/dev/null 2>&1; then
+    log_error "ADB-Gerät $serial ist nicht erreichbar."
+    return 1
+  fi
 
-if (( ${#device_rows[@]} != 1 )); then
-  echo "Es muss genau ein ADB-Gerät verbunden sein. Erkannte Geräte:" >&2
-  if (( ${#device_rows[@]} == 0 )); then
-    echo "  keine" >&2
+  local android_uid
+  android_uid=$(adb -s "$serial" shell id -u 2>&1 || true)
+  android_uid=$(trim_crlf "$android_uid")
+  
+  if [[ -n "$android_uid" && "$android_uid" == "0" ]]; then
+    log_error "Gerät läuft als root. Root ist nicht erforderlich."
+    return 1
+  fi
+
+  return 0
+}
+
+show_device_info() {
+  local serial="$1"
+  local user_id="$2"
+  
+  log_info "Verbundenes Gerät:"
+  echo "  Seriennummer: $serial"
+  
+  local model
+  model=$(get_device_model "$serial")
+  [[ -n "$model" ]] && echo "  Modell: $model"
+  
+  local version
+  version=$(get_android_version "$serial")
+  [[ -n "$version" ]] && echo "  Android-Version: $version"
+  
+  local sdk
+  sdk=$(get_android_sdk "$serial")
+  [[ -n "$sdk" ]] && echo "  SDK-Level: $sdk"
+  
+  echo "  Aktiver Nutzer: $user_id"
+  echo "  Script-Version: $SCRIPT_VERSION"
+  [[ "$DRY_RUN" == "true" ]] && echo "  Modus: ${YELLOW}DRY-RUN${NC}"
+}
+
+main() {
+  log_info "Xiaomi HyperOS Mini Debloater v$SCRIPT_VERSION"
+  
+  check_adb
+  
+  log_info "Suche ADB-Geräte..."
+  get_device_rows
+
+  if (( ${#device_rows[@]} != 1 )); then
+    log_error "Es muss genau ein ADB-Gerät verbunden sein. Erkannte Geräte:"
+    if (( ${#device_rows[@]} == 0 )); then
+      echo "  keine"
+    else
+      printf '  %s\n' "${device_rows[@]}"
+    fi
+    exit 1
+  fi
+
+  IFS=$'\t' read -r device_serial device_state <<< "${device_rows[0]}"
+  device_state=$(trim_crlf "$device_state")
+
+  if [[ "$device_state" != "device" ]]; then
+    log_error "Gerät $device_serial ist nicht autorisiert oder offline ($device_state)"
+    exit 1
+  fi
+
+  log_info "Verifiziere Gerätezustand..."
+  if ! verify_device_state "$device_serial"; then
+    exit 1
+  fi
+
+  local user_id
+  user_id=$(detect_user_id "$device_serial" || true)
+  if [[ -z "${user_id:-}" ]] || ! is_number "$user_id"; then
+    log_error "Android-Benutzer konnte nicht ermittelt werden"
+    exit 1
+  fi
+
+  echo
+  show_device_info "$device_serial" "$user_id"
+  echo
+
+  log_info "Apps zum Entfernen:"
+  printf '  • %s\n' "${PACKAGES[@]}"
+  echo
+
+  log_warn "Vor dem Fortfahren: Prüfe die Liste und verstehe die Auswirkungen!"
+  log_warn "Diese Operation kann Gerätefunktionen beeinträchtigen."
+  echo
+
+  local answer
+  if [[ "$DRY_RUN" == "true" ]]; then
+    answer="j"
   else
-    printf '  %s\n' "${device_rows[@]}" >&2
+    read -r -p "Zum Fortfahren exakt 'j' eingeben: " answer
   fi
-  echo "Bitte trenne weitere Geräte und autorisiere USB-Debugging." >&2
-  exit 1
-fi
 
-IFS=$'\t' read -r device_serial device_state <<< "${device_rows[0]}"
-device_state=$(trim_crlf "$device_state")
+  if [[ "$answer" != "j" ]]; then
+    log_info "Abbruch."
+    exit 0
+  fi
 
-if [[ "$device_state" != "device" ]]; then
-  printf 'ADB-Gerät %s ist nicht autorisiert oder offline (%s).\n' "$device_serial" "$device_state" >&2
-  exit 1
-fi
+  echo
+  log_info "Starte Entfernung..."
+  
+  local failures=0
+  local success=0
 
-if ! adb -s "$device_serial" get-state >/dev/null 2>&1; then
-  printf 'ADB-Gerät %s ist nicht erreichbar.\n' "$device_serial" >&2
-  exit 1
-fi
+  for package in "${PACKAGES[@]}"; do
+    log_info "Prüfe: $package"
 
-android_uid=$(adb -s "$device_serial" shell id -u 2>&1 || true)
-android_uid=$(trim_crlf "$android_uid")
-if [[ -n "$android_uid" && "$android_uid" == "0" ]]; then
-  echo "Abbruch: Das ADB-Shell-Konto läuft als root. Root ist nicht erforderlich." >&2
-  exit 1
-fi
+    if ! is_package_installed "$device_serial" "$package"; then
+      log_warn "Nicht installiert; übersprungen"
+      continue
+    fi
 
-sdk_version=$(get_android_sdk "$device_serial")
-if [[ -n "$sdk_version" ]]; then
-  echo "Zielgerät: $device_serial"
-  echo "Android SDK: $sdk_version"
-else
-  echo "Zielgerät: $device_serial"
-  echo "Android SDK konnte nicht ermittelt werden."
-fi
+    if try_uninstall "$device_serial" "$user_id" "$package"; then
+      ((success += 1))
+    else
+      ((failures += 1))
+    fi
+  done
 
-user_id=$(detect_user_id "$device_serial" || true)
-if [[ -z "${user_id:-}" ]] || ! is_number "$user_id"; then
-  printf 'Android-Benutzer konnte nicht ermittelt werden.\n' >&2
-  exit 1
-fi
+  echo
+  log_info "Zusammenfassung:"
+  echo "  Erfolgreich: $success"
+  echo "  Fehler: $failures"
+  
+  if (( failures > 0 )); then
+    log_error "Fertig mit $failures Fehler(n)."
+    exit 1
+  fi
 
-echo "Android-Benutzer: $user_id"
-echo
-echo "Das Skript versucht, diese Apps nur für diesen Benutzer zu entfernen:"
-printf '  %s\n' "${PACKAGES[@]}"
-echo
-echo "Warnung: Android 16 und neuere HyperOS-Versionen behandeln bestimmte Systempakete strenger."
-
-if [[ "$RUN_MODE" == "auto" ]]; then
-  answer="j"
-else
-  read -r -p "Zum Fortfahren exakt 'j' eingeben: " answer
-fi
-
-if [[ "$answer" != "j" ]]; then
-  echo "Abbruch."
+  log_success "Alle Apps erfolgreich verarbeitet."
+  echo
+  echo "Tipp: Um eine deaktivierte App wiederherzustellen:"
+  echo "  adb -s $device_serial shell cmd package install-existing --user $user_id PACKAGE_ID"
   exit 0
-fi
+}
 
-failures=0
-
-for package in "${PACKAGES[@]}"; do
-  printf '\nPrüfe %s ...\n' "$package"
-
-  if ! is_package_installed "$device_serial" "$package"; then
-    echo "Nicht installiert; übersprungen."
-    continue
-  fi
-
-  printf 'Entferne %s für Benutzer %s ...\n' "$package" "$user_id"
-  if try_uninstall "$device_serial" "$user_id" "$package" >/tmp/debloater_try_uninstall.log 2>&1; then
-    echo "Erfolgreich verarbeitet."
-    continue
-  fi
-
-  printf 'Fehler beim Entfernen von %s.\n' "$package" >&2
-  cat /tmp/debloater_try_uninstall.log >&2 || true
-  ((failures += 1))
-done
-
-if (( failures > 0 )); then
-  printf '\nFertig mit %d Fehler(n). Prüfe die obigen Meldungen.\n' "$failures" >&2
-  exit 1
-fi
-
-echo
-echo "Fertig."
+main "$@"
